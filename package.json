@@ -1,0 +1,24 @@
+{
+  "name": "redis_explicit",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cookie": "^0.5.0",
+    "cookie-signature": "^1.2.1",
+    "ejs": "^3.1.9",
+    "express": "^4.18.2",
+    "md5": "^2.3.0",
+    "mongodb": "^5.2.0",
+    "node-device-detector": "^2.0.13",
+    "on-headers": "^1.0.2",
+    "redis": "^4.6.5",
+    "uuid": "^9.0.0"
+  }
+}
