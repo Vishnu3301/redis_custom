@@ -89,13 +89,16 @@ function unsigncookie(val, secret) {
 
 //this function is to add user object to req.session if session exists
 app.use(async (req,res,next)=>{ 
-    const cookieId= req.sessionID= getCookie(req,name,secret)
+    // const cookieId= req.sessionID= getCookie(req,name,secret)
+    // console.log("running middlwar");
+    console.log("cookie id: ",cookieId)
     if(cookieId){
         let data=await redisClient.get(cookieId);
         if(data){
             data=JSON.parse(data);
             req.session=new Session(req);
             req.session.user=data.user
+            console.log(req.session.user)
         }
 
     }
@@ -130,6 +133,9 @@ app.post('/login',async (req,res)=>{
             COUNT:1
         })
         if(existingSessionKeysObject.keys.length>0){
+            //this means user has already logged in from another device/ browser on the same device
+            //delete the existing user session
+            //create new session and login
             const randomId=uuid()
             const SessionId=userid+':'+randomId
             generateSession(req,SessionId);
@@ -140,6 +146,8 @@ app.post('/login',async (req,res)=>{
             return res.json( {"message":"Logged out from one device, logged in from this"})
         }
         else{
+            //no previous session data exists
+            //create a login
             const randomId=uuid()
             const SessionId=userid+':'+randomId
             generateSession(req,SessionId);
@@ -165,7 +173,7 @@ app.get('/fav',async (req,res)=>{
             return res.json({fav:fav})
         }
     }
-    return res.json("No session, login first")
+    return res.json("Login First")
 })
 
 app.get('/logout',async (req,res)=>{
