@@ -5,14 +5,13 @@ const {connectTodb,getClient}=require('./db')
 const redis=require('redis')
 const signature=require('cookie-signature')
 const cookie=require('cookie')
-const DeviceDetector=require('node-device-detector')
-const onHeaders=require('on-headers')
 const redisClient=redis.createClient()
 let Session=require('./session')
 let Cookie=require('./cookie')
 const client=getClient()
 const _db=client.db('auth_redis').collection('users')
 const md5=require('md5')
+const { ObjectId } = require('mongodb')
 app.use(express.json())
 app.set('view engine','ejs')
 app.use(express.urlencoded({extended:false}))
@@ -20,18 +19,11 @@ async function redisConnect(){
     await redisClient.connect()
 }
 
-const detector=new DeviceDetector({
-    clientIndexes:true,
-    deviceIndexes:true,
-    deviceAliasCode:true,
-
-})
-
 const cookieOptions={
     //give the cookie options here
     secure:false,
     httpOnly:false,
-    maxAge:500000
+    maxAge:500000,
 }
 
 
@@ -94,18 +86,8 @@ function unsigncookie(val, secret) {
     return false;
 }
 
-async function alreadyLoggedInAnotherDevice(req,userid){
-    let data=await redisClient.get(userid)
-    data=JSON.parse(data)
-    if(data){
-        console.log(data)
-        return true
-    }
-    console.log(data)
-    return false
-}
 
-//this function add req.session.user
+//this function is to add user object to req.session if session exists
 app.use(async (req,res,next)=>{ 
     const cookieId= req.sessionID= getCookie(req,name,secret)
     if(cookieId){
@@ -120,16 +102,25 @@ app.use(async (req,res,next)=>{
     next();
 })
 
-app.get('/',(req,res)=>{
-    const userAgent=req.headers['user-agent']
-    console.log("md 5 has of user agent is: ",md5(userAgent))
-    res.send("check conseole")
-})
+//test function
+// app.get('/',(req,res)=>{
+//     const userAgent=req.headers['user-agent']
+//     console.log("md 5 has of user agent is: ",md5(userAgent))
+//     res.send("check conseole")
+// })
+
+// async function newSessionHandler(){
+
+// }
+
+// async function alreadyLoggedinSessionHandler(){
+
+// }
 
 app.get('/login',(req,res)=>{
     if(req.session){
         if(req.session.user){
-            return res.json({"user is already login ":req.session.user})
+            return res.json({message:"user is already logged in"})
         }
         return res.render('login')
     }
@@ -140,24 +131,29 @@ app.get('/login',(req,res)=>{
 
 app.post('/login',async (req,res)=>{
     const {username,password}=req.body;
-    const hasuser=await _db.findOne({username:username})
+    //not real authentication
+    const hasuser=await _db.findOne({username:username,password:password})
     if(hasuser){
+        //get the cookie id
         const cookieId= req.sessionID= getCookie(req,name,secret)
+        let userid=hasuser._id
+        userid=userid.toString()
+        const user={id:userid}
         if(cookieId){
-            let data=await redisClient.get(cookieId);
-            if(data){
+            const existingSessionKeysObject=await redisClient.scan(0,{
+                MATCH:`${userid}:*`,
+                COUNT:1
+            })
+            if(existingSessionKeysObject){
                 //user has cookie id and a session already exists with that id  - means alredy logged in using other browser/device
                 //delete the session data from session store related to previous login, then
                 //create new session data
                 await redisClient.del(cookieId)
-                let userid=hasuser._id
-                userid=userid.toString()
-                const user={id:userid}
                 const randomId=uuid()
                 const SessionId=userid+':'+randomId
                 generateSession(req,SessionId);
                 req.session.user=user;
-                await redisClient.del(cookieId) //delete the previous session from another device
+                await redisClient.del(existingSessionKeysObject.keys[0]) //delete the previous session from another device
                 await redisClient.setEx(SessionId,60*10,JSON.stringify(req.session)) //set session data in redis store
                 setcookie(res,name,SessionId,secret,req.session.cookie.data)
                 return res.json( {"message":"Logging you in from this browser/device , logging you out from similar browser/ or from a  device, cookie sent with req"})
@@ -168,9 +164,6 @@ app.post('/login',async (req,res)=>{
                 //then user has to login again,
                 //create session in session store,
                 //set cookie
-                let userid=hasuser._id
-                userid=userid.toString()
-                const user={id:userid}
                 const randomId=uuid()
                 const SessionId=userid+':'+randomId
                 generateSession(req,SessionId);
@@ -178,20 +171,17 @@ app.post('/login',async (req,res)=>{
                 await redisClient.setEx(SessionId,60*10,JSON.stringify(req.session)) //set session data in redis store
                 setcookie(res,name,SessionId,secret,req.session.cookie.data)
                 return res.json({
-                    "message":"logged in",
+                    "message":"logged in, cookie set but no session data with that cookie id",
                 })
             }
         }
         else{
             //cookie doesn't exists 
-            let userid=hasuser._id
-            userid=userid.toString()
             const existingSessionKeysObject=await redisClient.scan(0,{
                 MATCH:`${userid}:*`,
                 COUNT:1
             })
             if(existingSessionKeysObject.keys.length>0){
-                const user={id:userid}
                 const randomId=uuid()
                 const posSessionId=userid+':'+randomId
                 generateSession(req,posSessionId);
@@ -205,7 +195,6 @@ app.post('/login',async (req,res)=>{
             }
             else{
                 //new login from a new where the user don't have any session data instore
-                const user={id:userid}
                 const randomId=uuid()
                 const posSessionId=userid+':'+randomId
                 generateSession(req,posSessionId);
@@ -213,7 +202,7 @@ app.post('/login',async (req,res)=>{
                 await redisClient.setEx(posSessionId,60*10,JSON.stringify(req.session)) //set session data in redis store
                 setcookie(res,name,posSessionId,secret,req.session.cookie.data)
                 return res.json({
-                    "message":"logged in"
+                    "message":"logged in, cookie not set and also no previous session exists for the user, searched with scan"
                 })
             }
             
@@ -224,17 +213,13 @@ app.post('/login',async (req,res)=>{
     }
 })
 
-app.get('/somedata',async (req,res)=>{
-    const keys=await redisClient.scan(0,{
-        MATCH:"user:*",
-        COUNT:1
-    })
-    res.send(keys)
-})
-app.get('/fav',(req,res)=>{
+
+app.get('/fav',async (req,res)=>{
     if(req.session){
         if(req.session.user){
-            return res.send(`logged in from this device ${req.session.user.id}`)
+            let userid=new ObjectId(req.session.user.id)
+            const fav=await _db.findOne({_id:userid});
+            return res.json({fav:fav})
         }
     }
     return res.json("No session, login first")
@@ -244,12 +229,13 @@ app.get('/logout',async (req,res)=>{
     //del the session store key
     if(req.session){
         if(req.session.user){
-            await redisClient.del(req.session.user.id)
+            const cookieId=getCookie(req,name,secret)
+            await redisClient.del(cookieId)
             res.clearCookie(name)
-            res.send("logged out")
+            return res.send("logged out")
         }
     }
-    res.send("login first to  logout")
+    return res.send("login first to  logout")
 })
 
 connectTodb()
