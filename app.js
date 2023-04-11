@@ -10,7 +10,6 @@ let Session=require('./session')
 let Cookie=require('./cookie')
 const client=getClient()
 const _db=client.db('auth_redis').collection('users')
-const md5=require('md5')
 const { ObjectId } = require('mongodb')
 app.use(express.json())
 app.set('view engine','ejs')
@@ -37,7 +36,7 @@ function generateSession(req,sessionId){
     req.sessionID=sessionId;
     req.session=new Session(req);
     req.session.cookie=new Cookie(cookieOptions)
-    console.log("new session created")
+    // console.log("new session created")
 }
 
 const name=  opts.name || 'connect.sid'
@@ -89,16 +88,16 @@ function unsigncookie(val, secret) {
 
 //this function is to add user object to req.session if session exists
 app.use(async (req,res,next)=>{ 
-    // const cookieId= req.sessionID= getCookie(req,name,secret)
+    const cookieId= req.sessionID= getCookie(req,name,secret)
     // console.log("running middlwar");
-    console.log("cookie id: ",cookieId)
+    // console.log("cookie id: ",cookieId)
     if(cookieId){
         let data=await redisClient.get(cookieId);
         if(data){
             data=JSON.parse(data);
             req.session=new Session(req);
             req.session.user=data.user
-            console.log(req.session.user)
+            // console.log(req.session.user)
         }
 
     }
